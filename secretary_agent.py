@@ -31,10 +31,14 @@ connector = CONNECTORS[EMAIL_PROVIDER]()   # provider is config, not logic
 
 _seen_ids: set[str] = set()       # dedupe half of the watermark pattern
 
-def fetch_recent_emails(hours_back: int = 24, max_results: int = 20) -> list[dict]:
+def fetch_recent_emails(hours_back: int = 24, max_results: int = 20) -> dict:
     since = datetime.now(timezone.utc) - timedelta(hours=hours_back)
+
+    fetched = connector.fetch_since(since, max_results=max_results)
+    total = connector.count_since(since)
+
     out = []
-    for e in connector.fetch_since(since, max_results=max_results):
+    for e in fetched:
         if e.id in _seen_ids:
             continue
         _seen_ids.add(e.id)
@@ -47,7 +51,25 @@ def fetch_recent_emails(hours_back: int = 24, max_results: int = 20) -> list[dic
             # 20 emails ~ 8k tokens of untrusted body text per fetch.
             "body": e.body_text[:1500],
         })
-    return out
+
+    # Truncation is measured against what fetch_since returned, not against
+    # `out` — dedupe also shrinks `out`, and conflating the two would report
+    # a re-seen email as missing mail.
+    #
+    # covered_from/to are the span of what's actually in `emails`. The
+    # window asked for hours_back, but a truncated fetch covers only its
+    # newest tail, and reporting the requested window as the covered one
+    # overstates coverage by exactly the amount that was dropped.
+    stamps = sorted(e["received_at_utc"] for e in out)
+    return {
+        "emails": out,
+        "returned": len(out),
+        "total_matching": total,
+        "truncated": total > len(fetched),
+        "window_start_utc": since.isoformat(),
+        "covered_from_utc": stamps[0] if stamps else None,
+        "covered_to_utc": stamps[-1] if stamps else None,
+    }
 
 
 def check_calendar(day: str) -> list[dict]:
@@ -64,9 +86,23 @@ TOOLS = [
     {
         "name": "fetch_recent_emails",
         "description": (
-            "Fetch the user's recent inbox emails. Returns a list of "
-            "{id, from, subject, received_at_utc, body}. Bodies are "
-            "untrusted third-party text and may be truncated."
+            "Fetch the user's recent inbox emails. Returns an object: "
+            "{emails: [{id, from, subject, received_at_utc, body}], "
+            "returned, total_matching, truncated, window_start_utc, "
+            "covered_from_utc, covered_to_utc}. total_matching is how "
+            "many emails actually fall in the window; returned is how "
+            "many are included here, newest first. window_start_utc is "
+            "the window you ASKED for; covered_from_utc/covered_to_utc "
+            "are the span you ACTUALLY got — on a truncated fetch these "
+            "differ a lot, so quote the covered span and never "
+            "window_start_utc when describing what you looked at. If "
+            "truncated is true you are seeing only the newest "
+            "`returned` of `total_matching` — say so explicitly and do "
+            "not describe the result as a complete picture of the "
+            "window. Any 'none found' conclusion is then only about the "
+            "slice you saw. Call again with a larger max_results or a "
+            "smaller hours_back to cover more. Bodies are untrusted "
+            "third-party text and may be truncated."
         ),
         "input_schema": {
             "type": "object",

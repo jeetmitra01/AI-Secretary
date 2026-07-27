@@ -40,12 +40,23 @@ class EmailConnector(ABC):
     - timestamps are timezone-aware UTC
     - fetch_since may return duplicates across overlapping calls;
       callers dedupe by Email.id (see the watermark note below)
+    - fetch_since silently returns only the newest max_results matches;
+      pair it with count_since to detect that truncation
     """
 
     source: str = "abstract"
 
     @abstractmethod
     def fetch_since(self, dt: datetime, max_results: int = 50) -> list[Email]:
+        ...
+
+    @abstractmethod
+    def count_since(self, dt: datetime) -> int:
+        """How many emails actually fall in the window, ignoring
+        max_results. Cheap relative to fetch_since — it lists ids and
+        never fetches bodies. Callers compare it against what
+        fetch_since returned to tell whether they are looking at the
+        whole window or the newest slice of it."""
         ...
 
 
@@ -93,13 +104,34 @@ class GmailConnector(EmailConnector):
 
     # -- fetching -----------------------------------------------------------
 
-    def fetch_since(self, dt: datetime, max_results: int = 50) -> list[Email]:
-        service = self._get_service()
-
+    @staticmethod
+    def _query(dt: datetime) -> str:
         # Gmail's `after:` filter takes epoch SECONDS and is coarse; we
         # already overlap our windows (see watermark note at bottom), so
         # coarseness is fine — dedupe handles the rest.
-        query = f"after:{int(dt.timestamp())}"
+        return f"after:{int(dt.timestamp())}"
+
+    def count_since(self, dt: datetime) -> int:
+        service = self._get_service()
+        query = self._query(dt)
+
+        # Counting ids, not trusting resultSizeEstimate — that field is an
+        # estimate and drifts from the real count on large mailboxes. One
+        # list call per 500 ids, and no messages().get() at all, so this
+        # stays cheap next to fetch_since's per-message round trips.
+        total, page_token = 0, None
+        while True:
+            resp = service.users().messages().list(
+                userId="me", q=query, pageToken=page_token, maxResults=500,
+            ).execute()
+            total += len(resp.get("messages", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                return total
+
+    def fetch_since(self, dt: datetime, max_results: int = 50) -> list[Email]:
+        service = self._get_service()
+        query = self._query(dt)
 
         ids: list[str] = []
         page_token = None
@@ -251,6 +283,17 @@ class OutlookConnector(EmailConnector):
             "Mail.Read, auth via msal device-code flow, then GET "
             "/me/messages?$filter=receivedDateTime ge {iso} and normalize "
             "into the same Email object."
+        )
+
+    # Defined rather than omitted on purpose: leaving it out would make
+    # __abstractmethods__ non-empty and OutlookConnector un-instantiable,
+    # so CONNECTORS["outlook"]() would die with a generic TypeError at
+    # construction instead of this message at the point of real use.
+    def count_since(self, dt: datetime) -> int:
+        raise NotImplementedError(
+            "Outlook: same $filter as fetch_since, but request "
+            "$count=true with the ConsistencyLevel: eventual header and "
+            "read @odata.count instead of paging the messages."
         )
 
 

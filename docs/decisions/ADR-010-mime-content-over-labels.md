@@ -1,4 +1,4 @@
-# ADR-004: Trust MIME content over MIME labels
+# ADR-010: Trust MIME content over MIME labels
 
 Date: 2026-07-27
 Status: accepted

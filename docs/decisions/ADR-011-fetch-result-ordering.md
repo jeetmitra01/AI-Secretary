@@ -1,4 +1,4 @@
-# ADR-005: Ordering of fetch_since results
+# ADR-011: Ordering of fetch_since results
 
 Date: 2026-07-27
 Status: open
