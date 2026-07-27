@@ -157,22 +157,46 @@ class GmailConnector(EmailConnector):
         return ""
 
     def _walk_parts(self, part: dict) -> tuple[str, str]:
-        plain, html = "", ""
         mime = part.get("mimeType", "")
+        children = part.get("parts", [])
+
+        # multipart/alternative holds competing renderings of the SAME
+        # content. Concatenating duplicates the email; pick the richest
+        # candidate of each kind instead.
+        if mime == "multipart/alternative" and children:
+            plain, html = "", ""
+            for child in children:
+                p, h = self._walk_parts(child)
+                plain = max(plain, p, key=len)
+                html = max(html, h, key=len)
+            return plain, html
+
+        plain, html = "", ""
         data = part.get("body", {}).get("data")
 
         if data:  # a leaf with content
             text = _b64url_decode(data)
-            if mime == "text/plain":
+            # Trust content over label: ESPs routinely dump full HTML into
+            # the text/plain slot, which sails past the prefer-plain rule
+            # in _extract_body and reaches callers as raw markup.
+            if mime == "text/plain" and not _looks_like_html(text):
                 plain += text
-            elif mime == "text/html":
+            elif mime in ("text/plain", "text/html"):
                 html += text
 
-        for child in part.get("parts", []):  # recurse into containers
+        for child in children:  # mixed/related: genuine parts, concatenate
             p, h = self._walk_parts(child)
             plain += p
             html += h
         return plain, html
+
+
+def _looks_like_html(text: str) -> bool:
+    """Catches wholesale mislabeling (a full HTML document parked in a
+    text/plain part). A plain part with tags only sprinkled mid-body still
+    slips through; that needs tag-density heuristics and their false
+    positives."""
+    return text.lstrip()[:200].lower().startswith(("<!doctype", "<html"))
 
 
 def _b64url_decode(data: str) -> str:
