@@ -182,3 +182,10 @@ cython_debug/
 claude.md
 token.json
 credentials.json
+SCHEDULING.md
+
+# Digest run archives — real email content, never committed
+runs/
+
+# Watermark + seen ids — machine-local state, not source
+state.json

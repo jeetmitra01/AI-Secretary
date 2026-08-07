@@ -19,8 +19,10 @@ so the reasoning trail survives).
 | 008 | Platform timestamps over sender-supplied headers    | accepted |
 | 009 | Per-email extraction before digest composition      | proposed |
 | 010 | Trust MIME content over MIME labels                 | accepted |
-| 011 | Ordering of fetch_since results                     | open     |
+| 011 | Ordering of fetch_since results                     | accepted |
 | 012 | Surface fetch truncation instead of hiding it       | accepted |
+| 014 | Local-first digest delivery: file + Windows toast   | accepted |
+| 015 | Watermark advances only on a fully covered window   | accepted |
 
 ## Template
 
