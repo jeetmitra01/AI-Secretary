@@ -24,9 +24,11 @@ so the reasoning trail survives).
 | 014 | Local-first digest delivery: file + Windows toast   | accepted |
 | 015 | Watermark advances only on a fully covered window   | accepted |
 | 016 | No category filtering; marketing-subdomain denylist | accepted |
+| 017 | LangGraph for orchestration only, not model access  | accepted |
 | 018 | Add calendar.readonly on one scope-preserving token | accepted |
 | 019 | SQLite is the store of record; runs/ is an archive   | accepted |
 | 021 | Console encoding fixed in code, enforced by a test  | accepted |
+| 022 | Durable chat threads: SqliteSaver in secretary.db   | accepted |
 
 ## Template
 
