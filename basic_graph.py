@@ -18,9 +18,11 @@ from datetime import date
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+from console import use_utf8
+
 load_dotenv()  # loads ANTHROPIC_API_KEY from .env into the environment
 client = Anthropic()  # reads ANTHROPIC_API_KEY from env
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 MAX_ITERATIONS = 10   # the leash: a confused model must not loop forever
 
 
@@ -118,7 +120,9 @@ def run_agent(user_message: str) -> str:
     for iteration in range(1, MAX_ITERATIONS + 1):
         response = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=8192,   # thinking + answer share this budget on
+                               # this model; 1024 risks a truncated reply
+
             system=system,
             tools=TOOLS,
             messages=messages,
@@ -172,6 +176,7 @@ def run_agent(user_message: str) -> str:
 
 
 if __name__ == "__main__":
+    use_utf8()          # console.py
     answer = run_agent(
         "Who wants to meet with me, and am I free at the times they suggested? "
         "Assume 'Tuesday' means 2026-07-28."

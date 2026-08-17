@@ -2,7 +2,7 @@
 Phase 1, stage 1: per-email extraction (ADR-009).
 
 Deliberately boring: one email in, one validated JSON out. No tools,
-no loop, temperature 0. Boring is what makes it testable.
+no loop, no thinking. Boring is what makes it testable.
 
 Hallucination tripwires, in order of firing:
   1. Model must echo the email id; code verifies it matches input.
@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from models import Email
 
-MODEL = "claude-sonnet-4-6"   # try claude-haiku-4-5-20251001 later: extraction
+MODEL = "claude-sonnet-5"     # try claude-haiku-4-5 later: extraction
                               # is a narrow task, and comparing the two models'
                               # error rates on your runs/ archive is a free
                               # experiment in capability-vs-cost.
@@ -78,8 +78,20 @@ def extract_email(client, email: Email) -> Extraction | ExtractionFailure:
         schema=json.dumps(Extraction.model_json_schema(), indent=1),
     )
     try:
+        # temperature is gone, not moved: this model rejects a non-default
+        # value outright. It never guaranteed identical output anyway — the
+        # determinism this stage actually relies on is the schema (tripwire
+        # 2), not a sampling knob.
+        #
+        # thinking is disabled EXPLICITLY. Omitting it now means adaptive
+        # thinking, and max_tokens caps thinking + answer together — 800
+        # tokens shared with a reasoning pass is how you get a truncated
+        # JSON object, i.e. a parse failure the tripwires would report as
+        # a model error. Extraction is a fill-in-the-schema task; there is
+        # nothing here to reason about.
         resp = client.messages.create(
-            model=MODEL, max_tokens=800, temperature=0,
+            model=MODEL, max_tokens=800,
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": prompt}],
         )
         text = "".join(b.text for b in resp.content if b.type == "text")

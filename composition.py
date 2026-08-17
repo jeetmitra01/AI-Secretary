@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from extraction import Extraction, ExtractionFailure
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 USER_TZ = ZoneInfo("Asia/Kolkata")
 
 
@@ -100,8 +100,14 @@ def compose_digest(client, extractions: list[Extraction],
                       + ", ".join(f.id for f in failures))
 
     data = "\n".join(e.model_dump_json() for e in extractions)
+    # Same two changes as extraction.py: temperature is rejected by this
+    # model, and thinking must be turned off by name or it runs by default
+    # and eats into these 2000 tokens. The counts above are computed in
+    # code (stats_line), so what is left for the model here is prose — a
+    # rewriting job, not a reasoning one.
     resp = client.messages.create(
-        model=MODEL, max_tokens=2000, temperature=0,
+        model=MODEL, max_tokens=2000,
+        thinking={"type": "disabled"},
         messages=[{"role": "user", "content": COMPOSE_PROMPT.format(
             now=now.strftime("%A %d %B %Y, %H:%M"), tz=USER_TZ.key,
             n=len(extractions), data=data)}],
