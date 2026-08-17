@@ -11,20 +11,32 @@ Run:  pip install anthropic google-api-python-client google-auth-oauthlib
 
 import json
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from anthropic import Anthropic
 
 from connectors import CONNECTORS
+from console import use_utf8
 
 from dotenv import load_dotenv
 
 load_dotenv()  # loads ANTHROPIC_API_KEY from .env into the environmenta
 client = Anthropic()
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-5"
 MAX_ITERATIONS = 10
+MAX_TOKENS = 8192     # raised from 2048 with the model change: this model
+                      # thinks by default, and max_tokens is the cap on
+                      # thinking PLUS the answer. The old budget would now
+                      # be spent reasoning and truncate the reply.
 
 EMAIL_PROVIDER = "gmail"          # the one-account-per-agent decision:
 connector = CONNECTORS[EMAIL_PROVIDER]()   # provider is config, not logic
+
+CALENDAR_PROVIDER = "google"
+USER_TZ = ZoneInfo("Asia/Kolkata")
+_calendar = None                  # built lazily: importing this module must
+                                  # not trigger an OAuth check for a scope
+                                  # the caller may never use
 
 
 # --- tools: now real -------------------------------------------------------
@@ -73,8 +85,18 @@ def fetch_recent_emails(hours_back: int = 24, max_results: int = 20) -> dict:
 
 
 def check_calendar(day: str) -> list[dict]:
-    """Still a stub — phase 2. The agent doesn't know or care."""
-    return []
+    """Real as of phase 2. The tool SCHEMA never changed — which is the
+    point of ADR-002's seam: the agent's view of the world is identical
+    whether this returns a stub or a live calendar."""
+    from datetime import date as _date
+
+    from calendars import CALENDARS
+    global _calendar
+    if _calendar is None:
+        _calendar = CALENDARS[CALENDAR_PROVIDER]()
+    # tz is passed in, not assumed by the connector: "which day is it"
+    # is a fact about the principal, not about the calendar server.
+    return _calendar.busy_blocks(_date.fromisoformat(day), USER_TZ)
 
 
 TOOL_FUNCTIONS = {
@@ -117,8 +139,17 @@ TOOLS = [
     },
     {
         "name": "check_calendar",
-        "description": ("Get the user's busy blocks for a day (YYYY-MM-DD). "
-                        "Empty list means free."),
+        "description": (
+            "Get the user's busy blocks for one day (YYYY-MM-DD), in the "
+            "user's local timezone. Returns a list of "
+            "{title, all_day, start, end, calendar}; start/end are HH:MM "
+            "and are absent when all_day is true. Events the user declined "
+            "and events marked Free are already excluded, so everything "
+            "returned is a real conflict. An empty list means the user is "
+            "free that day — it never means the lookup failed, which "
+            "raises instead. Check each proposed meeting time against "
+            "this before saying the user is available, and state the day "
+            "you checked."),
         "input_schema": {
             "type": "object",
             "properties": {"day": {"type": "string",
@@ -143,8 +174,12 @@ def run_agent(user_message: str) -> str:
     )
 
     for _ in range(MAX_ITERATIONS):
+        # Thinking is left ON here, unlike the two one-shot stages. This is
+        # the loop that decides WHICH tool to call and whether the result
+        # answers the question, and this model reaches for tools less
+        # readily with thinking off — the opposite of what an agent wants.
         response = client.messages.create(
-            model=MODEL, max_tokens=2048, system=system,
+            model=MODEL, max_tokens=MAX_TOKENS, system=system,
             tools=TOOLS, messages=messages,
         )
         messages.append({"role": "assistant", "content": response.content})
@@ -173,6 +208,8 @@ def run_agent(user_message: str) -> str:
 
 
 if __name__ == "__main__":
+    use_utf8()          # model output and email subjects are not ASCII
+                        # (console.py)
     print(run_agent(
         "Summarize my last 24 hours of email. Group into: needs my action, "
         "meeting requests (who/when), and FYI. Cite email ids."
