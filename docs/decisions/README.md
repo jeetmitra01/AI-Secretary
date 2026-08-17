@@ -23,6 +23,7 @@ so the reasoning trail survives).
 | 012 | Surface fetch truncation instead of hiding it       | accepted |
 | 014 | Local-first digest delivery: file + Windows toast   | accepted |
 | 015 | Watermark advances only on a fully covered window   | accepted |
+| 021 | Console encoding fixed in code, enforced by a test  | accepted |
 
 ## Template
 
