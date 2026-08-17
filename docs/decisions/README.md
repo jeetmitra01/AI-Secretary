@@ -27,6 +27,7 @@ so the reasoning trail survives).
 | 017 | LangGraph for orchestration only, not model access  | accepted |
 | 018 | Add calendar.readonly on one scope-preserving token | accepted |
 | 019 | SQLite is the store of record; runs/ is an archive   | accepted |
+| 020 | Loopback HTTP service is the interaction surface     | accepted |
 | 021 | Console encoding fixed in code, enforced by a test  | accepted |
 | 022 | Durable chat threads: SqliteSaver in secretary.db   | accepted |
 
