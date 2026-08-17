@@ -25,6 +25,7 @@ so the reasoning trail survives).
 | 015 | Watermark advances only on a fully covered window   | accepted |
 | 016 | No category filtering; marketing-subdomain denylist | accepted |
 | 018 | Add calendar.readonly on one scope-preserving token | accepted |
+| 019 | SQLite is the store of record; runs/ is an archive   | accepted |
 | 021 | Console encoding fixed in code, enforced by a test  | accepted |
 
 ## Template

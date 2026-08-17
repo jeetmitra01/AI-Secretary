@@ -189,3 +189,9 @@ runs/
 
 # Watermark + seen ids — machine-local state, not source
 state.json
+
+# The ADR-019 store: real email bodies, same sensitivity as runs/ and
+# token.json. The -wal/-shm siblings are WAL mode's working files.
+secretary.db
+secretary.db-wal
+secretary.db-shm
