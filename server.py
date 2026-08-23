@@ -23,6 +23,7 @@ digest could never use.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import threading
@@ -42,6 +43,10 @@ import store                                            # noqa: E402
 import run_digest                                       # noqa: E402
 from connectors import ReauthorizationRequired          # noqa: E402
 from console import use_utf8                            # noqa: E402
+# Light by design (stdlib + pydantic), so importing the read API does not
+# drag in either zone's clients. executor.py, which holds the write
+# capability, is imported lazily inside the two endpoints that need it.
+from proposals import CalendarProposal                  # noqa: E402
 
 HOST = "127.0.0.1"                  # ADR-020. Not a config knob: making this
 PORT = 8765                         # 0.0.0.0 exposes an authenticated inbox
@@ -106,6 +111,35 @@ class IngestResult(BaseModel):
     ok_count: int
     failed_count: int
     digest: str
+
+
+class ProposalSummary(BaseModel):
+    id: str
+    created_at: str
+    expires_at: str
+    status: str
+    source_email_id: str | None = None
+    # The rendered line, not the raw payload: it puts the verbatim phrase
+    # from the email next to the resolved instant, which is the whole
+    # mechanism for catching a timezone misread (ADR-023).
+    reads_as: str
+    policy_ok: bool | None = None
+    policy_failed: list[str] = Field(default_factory=list)
+    event_id: str | None = None
+
+
+class DecisionResult(BaseModel):
+    proposal_id: str
+    status: str
+    message: str
+    event_id: str | None = None
+    policy_ok: bool | None = None
+    policy_failed: list[str] = Field(default_factory=list)
+    policy_summary: str | None = None
+
+
+class RejectRequest(BaseModel):
+    reason: str = ""
 
 
 class ChatRequest(BaseModel):
@@ -239,6 +273,79 @@ def ingest() -> IngestResult:
         failed_count=len(result.failures),
         digest=result.digest,
     )
+
+
+# --- proposals (ADR-023) ---------------------------------------------------
+#
+# The human half of the two-zone split. The agent can only ever produce a
+# pending row; these three endpoints are the only way one becomes a real
+# calendar event, and they are reachable only from 127.0.0.1 (ADR-020).
+
+def _summarize(row: dict) -> ProposalSummary:
+    proposal = CalendarProposal.model_validate_json(row["payload"])
+    return ProposalSummary(
+        id=row["id"], created_at=row["created_at"],
+        expires_at=row["expires_at"], status=row["status"],
+        source_email_id=row["source_email_id"],
+        reads_as=proposal.human(),
+        policy_ok=None if row["policy_ok"] is None else bool(row["policy_ok"]),
+        policy_failed=json.loads(row["policy_failed"] or "[]"),
+        event_id=row["event_id"])
+
+
+@app.get("/proposals", response_model=list[ProposalSummary])
+def proposals(status: str = Query("pending",
+                                  description="A status, or 'all'."),
+              limit: int = Query(20, ge=1, le=200), conn=Depends(db)):
+    """Pending calendar proposals, newest first.
+
+    The TTL sweep runs on read rather than on a schedule: a scheduled job
+    that quietly stops running would leave week-old proposals looking
+    confirmable, and this endpoint is the thing that would show them.
+    """
+    store.expire_proposals(conn)
+    rows = store.list_proposals(conn, None if status == "all" else status,
+                                limit=limit)
+    return [_summarize(r) for r in rows]
+
+
+@app.post("/proposals/{proposal_id}/confirm", response_model=DecisionResult)
+def confirm_proposal(proposal_id: str, conn=Depends(db)) -> DecisionResult:
+    """Commit one proposal — the only write path in the system.
+
+    `executor` is imported lazily for the same reason `secretary_graph` is:
+    it is the module holding the Google write client, and a read endpoint
+    should keep working while it is mid-edit or its dependencies are
+    missing.
+
+    The executor re-runs the policy gate itself before it calls the API, so
+    nothing here needs to check anything (ADR-024).
+    """
+    import executor
+
+    result = executor.commit(conn, proposal_id, actor="human")
+    if result["status"] == "unknown":
+        raise HTTPException(404, f"no proposal {proposal_id}")
+    if result["needs_consent"]:
+        # 503 like ingest: the service is fine, the write grant is not, and
+        # only a human at a terminal can fix it.
+        raise HTTPException(503, result["message"])
+    return DecisionResult(**{k: v for k, v in result.items()
+                             if k != "needs_consent"})
+
+
+@app.post("/proposals/{proposal_id}/reject", response_model=DecisionResult)
+def reject_proposal(proposal_id: str, req: RejectRequest,
+                    conn=Depends(db)) -> DecisionResult:
+    """Decline a proposal. Kept as a row, not deleted — shadow mode needs
+    the rejections as much as the confirmations (ADR-024)."""
+    import executor
+
+    result = executor.reject(conn, proposal_id, req.reason)
+    if result["status"] == "unknown":
+        raise HTTPException(404, f"no proposal {proposal_id}")
+    return DecisionResult(**{k: v for k, v in result.items()
+                             if k != "needs_consent"})
 
 
 # --- chat ------------------------------------------------------------------

@@ -181,6 +181,9 @@ cython_debug/
 .cursorindexingignore
 claude.md
 token.json
+# The ADR-023 write grant. Separate file, separate scope, and the
+# only credential in this repo that can CHANGE anything.
+token_write.json
 credentials.json
 SCHEDULING.md
 

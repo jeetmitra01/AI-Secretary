@@ -2,6 +2,7 @@
 
 Date: 2026-07-27
 Status: accepted
+Amended by: ADR-023 (calendar writes, on a human-confirmed path outside the model's tool registry)
 
 ## Context
 The agent ingests untrusted third-party text (email) by design, and

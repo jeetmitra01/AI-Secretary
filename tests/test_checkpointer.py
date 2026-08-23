@@ -132,8 +132,12 @@ def test_checkpoint_tables_coexist_with_the_store(tmp_path, monkeypatch):
     # less than one that is still writable next to the other.
     _tiny_graph(saver).invoke({"messages": ["x"]},
                               {"configurable": {"thread_id": "t"}})
-    assert store.counts(store_conn) == {"emails": 0, "extractions": 0,
-                                        "failures": 0, "runs": 0}
+    # Subset, like the two table assertions above: this test is about the
+    # two schemas coexisting, not about how many things counts() reports.
+    # Exact equality here made adding the proposals table (ADR-023) look
+    # like a checkpointer regression.
+    assert store.counts(store_conn).items() >= {
+        "emails": 0, "extractions": 0, "failures": 0, "runs": 0}.items()
 
     saver.conn.close()
     store_conn.close()

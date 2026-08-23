@@ -2,6 +2,7 @@
 
 Date: 2026-08-12
 Status: accepted
+Amended by: ADR-023 (calendar writes, on a human-confirmed path outside the model's tool registry)
 
 ## Context
 

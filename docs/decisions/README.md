@@ -30,6 +30,8 @@ so the reasoning trail survives).
 | 020 | Loopback HTTP service is the interaction surface     | accepted |
 | 021 | Console encoding fixed in code, enforced by a test  | accepted |
 | 022 | Durable chat threads: SqliteSaver in secretary.db   | accepted |
+| 023 | Calendar writes behind a non-LLM executor zone      | accepted |
+| 024 | Deterministic policy gate; auto-commit in shadow    | accepted |
 
 ## Template
 

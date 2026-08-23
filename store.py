@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,6 +89,39 @@ CREATE TABLE IF NOT EXISTS runs (
     failed_count   INTEGER NOT NULL,
     digest_md      TEXT
 );
+
+-- ADR-023: the seam between the two trust zones. The agent WRITES rows
+-- here and can do nothing else; executor.py READS them and is the only
+-- thing holding a write scope. Because the handoff is a table rather than
+-- an in-process channel, the two zones never have to talk, the queue
+-- survives a restart, and shadow mode (ADR-024) is queryable history
+-- instead of a log line.
+--
+-- CREATE TABLE IF NOT EXISTS in connect() is the whole migration story for
+-- an existing secretary.db: the table appears on the next open.
+CREATE TABLE IF NOT EXISTS proposals (
+    id              TEXT PRIMARY KEY,  -- short hex; a human types it at /confirm
+    created_at      TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,     -- ADR-024: pending is not forever
+    status          TEXT NOT NULL,     -- pending|committing|confirmed
+                                       -- |rejected|expired|failed
+    source_email_id TEXT,              -- NOT a foreign key, same reasoning as
+                                       -- extractions: the cited mail may not
+                                       -- be stored, and that is a policy
+                                       -- failure (known_sender) rather than
+                                       -- a corrupt row
+    thread_id       TEXT,              -- the chat thread that produced it
+    payload         TEXT NOT NULL,     -- CalendarProposal JSON, verbatim
+    policy_ok       INTEGER,           -- the shadow-mode verdict, recorded
+    policy_failed   TEXT,              -- JSON list of failed check names
+    decided_at      TEXT,
+    decided_by      TEXT,              -- "human" | "auto" — who committed it
+    event_id        TEXT,              -- provider event id, after the write
+    error           TEXT
+);
+CREATE INDEX IF NOT EXISTS proposals_status
+    ON proposals(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS proposals_email ON proposals(source_email_id);
 
 -- External-content FTS: the index stores no copy of the text, it points at
 -- emails.rowid. Keeps the db roughly one copy of your inbox instead of two.
@@ -228,6 +262,105 @@ def save_run(conn: sqlite3.Connection, run_id: str, coverage, digest: str,
     conn.commit()
 
 
+# --- proposals (ADR-023) ---------------------------------------------------
+#
+# Deliberately dumb functions: they move rows, they decide nothing. The
+# policy lives in proposals.py and the capability lives in executor.py, so
+# importing store.py can never be a way to reach a calendar write.
+
+def save_proposal(conn: sqlite3.Connection, payload_json: str,
+                  expires: datetime, policy_ok: bool,
+                  policy_failed: list[str],
+                  source_email_id: str | None = None,
+                  thread_id: str | None = None) -> str:
+    """Insert one pending proposal and return its id.
+
+    The verdict is stored WITH the row rather than recomputed on read.
+    Shadow mode (ADR-024) asks "what would the gate have done at the time",
+    and a verdict recomputed next week answers a different question.
+    """
+    proposal_id = uuid.uuid4().hex[:8]
+    conn.execute(
+        """INSERT INTO proposals (id, created_at, expires_at, status,
+                                  source_email_id, thread_id, payload,
+                                  policy_ok, policy_failed)
+           VALUES (?,?,?,'pending',?,?,?,?,?)""",
+        (proposal_id, _iso_utc(datetime.now(timezone.utc)), _iso_utc(expires),
+         source_email_id, thread_id, payload_json,
+         int(policy_ok), json.dumps(policy_failed)))
+    conn.commit()
+    return proposal_id
+
+
+def get_proposal(conn: sqlite3.Connection, proposal_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM proposals WHERE id = ?",
+                       (proposal_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_proposals(conn: sqlite3.Connection, status: str | None = "pending",
+                   limit: int = 20) -> list[dict]:
+    """Newest first. status=None lists every state, which is what the
+    shadow-mode query wants."""
+    sql = "SELECT * FROM proposals"
+    args: list = []
+    if status:
+        sql += " WHERE status = ?"
+        args.append(status)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in conn.execute(sql, args)]
+
+
+def claim_proposal(conn: sqlite3.Connection, proposal_id: str) -> bool:
+    """Take a pending proposal into 'committing'. True if we got it.
+
+    This exists so the claim happens BEFORE the API call, not after. Two
+    confirms racing — one in the REPL, one in /docs — would otherwise both
+    read 'pending', both create a calendar event, and only then argue about
+    who writes the row. A conditional UPDATE is atomic under SQLite's write
+    lock, so exactly one of them proceeds.
+    """
+    cur = conn.execute(
+        """UPDATE proposals SET status = 'committing'
+            WHERE id = ? AND status = 'pending'""", (proposal_id,))
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def mark_proposal(conn: sqlite3.Connection, proposal_id: str, status: str,
+                  decided_by: str | None = None, event_id: str | None = None,
+                  error: str | None = None,
+                  from_status: str = "pending") -> bool:
+    """Move a proposal to a terminal state. Returns False if it had already
+    moved — the caller lost a race and must not act on the row."""
+    cur = conn.execute(
+        """UPDATE proposals
+              SET status = ?, decided_at = ?, decided_by = ?,
+                  event_id = ?, error = ?
+            WHERE id = ? AND status = ?""",
+        (status, _iso_utc(datetime.now(timezone.utc)), decided_by,
+         event_id, error, proposal_id, from_status))
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def expire_proposals(conn: sqlite3.Connection,
+                     now: datetime | None = None) -> int:
+    """Sweep pending proposals past their TTL. Cheap, so every read path
+    calls it rather than relying on a scheduled job that can stop running."""
+    # Resolved once: two datetime.now() calls would stamp a row with a
+    # decided_at microseconds apart from the cutoff it was judged against.
+    stamp = _iso_utc(now or datetime.now(timezone.utc))
+    cur = conn.execute(
+        """UPDATE proposals SET status = 'expired', decided_at = ?,
+                                decided_by = 'ttl'
+            WHERE status = 'pending' AND expires_at <= ?""",
+        (stamp, stamp))
+    conn.commit()
+    return cur.rowcount
+
+
 # --- reads -----------------------------------------------------------------
 
 def latest_run(conn: sqlite3.Connection) -> dict | None:
@@ -323,7 +456,9 @@ def counts(conn: sqlite3.Connection) -> dict:
                                                                 AS extractions,
                   (SELECT COUNT(*) FROM extractions
                     WHERE error IS NOT NULL)                        AS failures,
-                  (SELECT COUNT(*) FROM runs)                       AS runs
+                  (SELECT COUNT(*) FROM runs)                       AS runs,
+                  (SELECT COUNT(*) FROM proposals WHERE status = 'pending')
+                                                            AS pending_proposals
         """).fetchone()
     return dict(row)
 
