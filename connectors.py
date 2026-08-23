@@ -11,7 +11,8 @@ Setup (Gmail):
 
     NOTE: while the consent screen sits in "Testing", Google expires the
     refresh token after 7 DAYS. Re-authorizing weekly is the cost of not
-    publishing; see ReauthorizationRequired below for how that surfaces.
+    publishing; auth.py holds that dance and ReauthorizationRequired is
+    how it surfaces (ADR-026). `python connectors.py` re-consents.
 
 Smoke test:
     python connectors.py          # prints your last 24h of email, normalized
@@ -21,19 +22,22 @@ from __future__ import annotations
 
 import base64
 import re
-import sys
 from abc import ABC, abstractmethod
 from collections.abc import Collection
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
-from pathlib import Path
 
+from auth import load_credentials
 from console import use_utf8
 from models import Email
 
 # READ-ONLY on purpose. Widening this scope later (e.g. to create drafts)
 # is a deliberate security decision, not a config tweak. If you change
 # scopes, delete token.json and re-authorize.
+#
+# Declared HERE and not in auth.py (ADR-026): a scope is a statement about
+# what this connector may do, and it belongs beside the code that does it.
+# A shared list of every scope in the project would read like a menu.
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 # Sort floor for emails with no received_at — they sort last (ADR-011)
@@ -66,17 +70,6 @@ BULK_SENDERS = [
     "coach@mk.emna.coach.com",
     "madewell@mail.madewell.com",
 ]
-
-
-class ReauthorizationRequired(Exception):
-    """The cached token is dead and renewing it needs a human at a browser.
-
-    Raised INSTEAD of opening a browser when nobody is watching. A
-    scheduled run that calls run_local_server() blocks on a consent page
-    no one will ever see, until Task Scheduler's ExecutionTimeLimit kills
-    it 15 minutes later — a hang that looks identical to a slow run.
-    Failing fast and loudly is recoverable; hanging silently is not.
-    """
 
 
 # ---------------------------------------------------------------------------
@@ -122,107 +115,6 @@ class EmailConnector(ABC):
         bodies. Callers compare it against what fetch_since returned to
         tell whether they are looking at the whole window or a slice."""
         ...
-
-
-# ---------------------------------------------------------------------------
-# Google OAuth — shared by every Google connector (mail, calendar, ...)
-# ---------------------------------------------------------------------------
-
-def load_credentials(scopes: Collection[str],
-                     credentials_file: str = "credentials.json",
-                     token_file: str = "token.json",
-                     allow_interactive_auth: bool = False):
-    """Valid credentials covering `scopes`, or a clear reason why not.
-
-    Lives at module level rather than on GmailConnector because Calendar
-    needs the identical dance — the 7-day Testing expiry, the dead-refresh
-    branch, and the never-open-a-browser-unattended rule are properties of
-    Google OAuth, not of Gmail.
-    """
-    from google.oauth2.credentials import Credentials
-
-    scopes = list(scopes)
-    creds = None
-    if Path(token_file).exists():
-        # NO scopes argument here, and that is load-bearing. Passing scopes
-        # makes Credentials report the scopes you ASKED FOR as though they
-        # were granted, overwriting what the file actually says. The
-        # sufficiency check below then compares a set against itself, is
-        # always empty, and silently never fires. Omitting the argument
-        # leaves creds.scopes as the real grant.
-        creds = Credentials.from_authorized_user_file(token_file)
-
-    # Scope sufficiency is NOT part of creds.valid, and that gap is a trap:
-    # a token minted for gmail.readonly stays "valid" forever while every
-    # Calendar call returns 403 "Request had insufficient authentication
-    # scopes" — which reads like a broken permission grant rather than
-    # "consent again for the new scope". Checking here names the real cure
-    # at the point of failure instead of 403-ing deep inside a tool call,
-    # and skips a refresh round trip that could not have helped.
-    missing = set(scopes) - set(creds.scopes or []) if creds else set(scopes)
-
-    if creds and creds.valid and not missing:
-        return creds
-
-    creds = _renew(creds, scopes, credentials_file, allow_interactive_auth,
-                   missing)
-    Path(token_file).write_text(creds.to_json())
-    return creds
-
-
-def _renew(creds, scopes, credentials_file, allow_interactive_auth, missing):
-    """Get back to valid credentials, by the cheapest route available.
-
-    Four outcomes now, and the original code only handled the happy one:
-    refresh succeeds (silent, the common case); the token is missing a
-    scope, which refreshing can NEVER add; refresh is rejected because the
-    refresh token itself is dead (7-day Testing expiry, a manual revoke, a
-    password change); or there is nothing to refresh from. All but the
-    first mean "a human must re-consent".
-    """
-    from google.auth.exceptions import RefreshError
-    from google.auth.transport.requests import Request
-    from google_auth_oauthlib.flow import InstalledAppFlow
-
-    if missing:
-        # Deliberately before the refresh attempt: a refresh returns the
-        # scopes already granted, so refreshing to obtain a new one just
-        # burns a round trip and then fails identically.
-        why = f"token lacks {', '.join(sorted(missing))}"
-    else:
-        why = "no cached token"
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())          # silent refresh
-                return creds
-            except RefreshError as e:
-                # Google says invalid_grant for expired AND revoked alike;
-                # the response body doesn't distinguish them, so neither
-                # can we. Either way the only cure is a fresh consent.
-                why = f"refresh rejected ({e.args[0] if e.args else e})"
-
-    if not allow_interactive_auth:
-        raise ReauthorizationRequired(
-            f"{why}. Google needs consent again and this process has no "
-            f"console to prompt at. Run `python connectors.py` in a "
-            f"terminal to re-authorize, then the schedule resumes."
-        )
-
-    # Consent for the UNION of what we need and what the token already had.
-    # Requesting only `scopes` would silently narrow the grant: adding
-    # calendar.readonly to a gmail.readonly token would come back holding
-    # calendar alone, and the next digest run would fail authorization on a
-    # mailbox that worked ten seconds earlier. Re-consent must never take a
-    # capability away as a side effect of adding one.
-    granted = set(creds.scopes or []) if creds else set()
-    request = sorted(set(scopes) | granted)
-    if granted - set(scopes):
-        print(f"[auth] preserving existing scope(s): "
-              f"{', '.join(sorted(granted - set(scopes)))}", file=sys.stderr)
-
-    print(f"[auth] {why} — opening browser to re-authorize.", file=sys.stderr)
-    flow = InstalledAppFlow.from_client_secrets_file(credentials_file, request)
-    return flow.run_local_server(port=0)
 
 
 # ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pydantic import ValidationError
 
 import store
-from connectors import ReauthorizationRequired, load_credentials
+from auth import ReauthorizationRequired, load_credentials
 from proposals import USER_TZ, CalendarProposal, evaluate
 
 # `events` and not `calendar`: the full scope can delete entire calendars.

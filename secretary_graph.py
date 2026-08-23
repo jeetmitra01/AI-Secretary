@@ -143,9 +143,29 @@ def call_model(state: AgentState) -> dict:
     # that round trip. No longer hypothetical now the saver is durable — SDK
     # objects here would be a serialization problem on every turn. The API
     # accepts either.
+    #
+    # exclude_none is not tidiness, it is the fix for a real 400. The two
+    # API paths return different classes: .create() gives a TextBlock,
+    # .stream().get_final_message() gives a ParsedTextBlock, which carries
+    # an SDK-ONLY `parsed_output` field. Dumped whole, that key lands in
+    # the checkpoint, and the next turn resends it:
+    #
+    #   messages.1.content.0.text.parsed_output: Extra inputs are not
+    #   permitted
+    #
+    # Note where that lands. Turn 1 succeeds and is billed; turn 2 dies on
+    # history it cannot change, and the thread stays broken for good.
+    # Dropping nulls kills the whole class, not just this field — the next
+    # SDK-only addition would fail the same way, and just as late.
+    #
+    # The trade, stated so a future edit can weigh it: if the API ever adds
+    # a NULLABLE field that must come back, this drops it silently. Nothing
+    # in the current block types is like that — thinking carries a string
+    # signature, tool_use a dict input.
     return {
         "messages": [{"role": "assistant",
-                      "content": [b.model_dump() for b in response.content]}],
+                      "content": [b.model_dump(exclude_none=True)
+                                  for b in response.content]}],
         "stop_reason": response.stop_reason,
     }
 

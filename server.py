@@ -5,14 +5,15 @@ had.
     uvicorn server:app --reload        (dev)
     python server.py                   (same thing, bound explicitly)
 
-Then: http://127.0.0.1:8765/docs — FastAPI generates the API console, so
-there is something clickable before any front end exists.
+Then: http://127.0.0.1:8765/ — the chat page (ADR-025), and /docs for the
+generated API console.
 
-What this is NOT: a web app. It holds the Gmail token, the Anthropic
-client and the connector stack, and it binds to 127.0.0.1 so that being
-unreachable from the network is a property of the socket rather than of
-an auth check we remembered to write (the ADR-003 argument, one layer
-down). Every future front end — a page, a Chrome extension overlaying
+What this is NOT: a web app framework. `/` hands out one static file and
+every other route is JSON. This process holds the Gmail token, the
+Anthropic client and the connector stack, and it binds to 127.0.0.1 so
+that being unreachable from the network is a property of the socket
+rather than of an auth check we remembered to write (the ADR-003
+argument, one layer down). Every future front end — a page, a Chrome extension overlaying
 Gmail, a desktop shell — is a client of these endpoints.
 
 Reads come from the ADR-019 store. Ingest calls the exact function the
@@ -33,7 +34,7 @@ from typing import Iterator, Literal
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 BASE = Path(__file__).parent
@@ -41,7 +42,7 @@ load_dotenv(BASE / ".env")          # before anything constructs Anthropic()
 
 import store                                            # noqa: E402
 import run_digest                                       # noqa: E402
-from connectors import ReauthorizationRequired          # noqa: E402
+from auth import ReauthorizationRequired                # noqa: E402
 from console import use_utf8                            # noqa: E402
 # Light by design (stdlib + pydantic), so importing the read API does not
 # drag in either zone's clients. executor.py, which holds the write
@@ -59,10 +60,14 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# No CORS middleware on purpose (ADR-020): a same-origin page served from
-# here needs none, and a wildcard would let any website in your browser
-# read your inbox through this port. The Chrome-extension client will
-# need one explicit origin added here — a deliberate edit, not a default.
+# No CORS middleware on purpose (ADR-020): the page at `/` is served from
+# this very origin, so it needs none, and a wildcard would let any website
+# in your browser read your inbox through this port. The Chrome-extension
+# client will need one explicit origin added here — a deliberate edit, not
+# a default.
+
+WEB = BASE / "web"                  # the front end (ADR-025): static files,
+                                    # no build step, served same-origin
 
 
 # --- plumbing --------------------------------------------------------------
@@ -373,6 +378,86 @@ def chat(req: ChatRequest) -> ChatResponse:
     return ChatResponse(thread_id=req.thread_id, reply=reply)
 
 
+def _sse(event: dict) -> str:
+    """One Server-Sent Event.
+
+    The whole format is `data: <payload>` followed by a BLANK line.
+    json.dumps is not decoration: it guarantees the payload contains no
+    newline of its own, and a raw newline inside a `data:` line would
+    end the event early and split one token across two.
+    """
+    return f"data: {json.dumps(event)}\n\n"
+
+
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest) -> StreamingResponse:
+    """The same run as POST /chat, sent as it happens (ADR-025).
+
+    Event types, one JSON object per SSE `data:` line:
+
+        {"type": "thinking", "text": ...}
+        {"type": "text",     "text": ...}
+        {"type": "tool",     "name": ..., "input": {...}}
+        {"type": "error",    "text": ...}
+        {"type": "done",     "thread_id": ...}     always last
+
+    Errors arrive as events, not as status codes. By the time a tool
+    fails, the response is already a 200 with half an answer in it — the
+    status line was sent before the work started, and cannot be taken
+    back. Any client of this endpoint must read `error` events; checking
+    `response.ok` is not enough.
+
+    /chat stays exactly as it was. A caller that wants one string should
+    keep using it, and this endpoint costs the same tokens for the same
+    run — the difference is only when the bytes arrive.
+    """
+    from secretary_graph import stream_agent
+
+    def events():
+        try:
+            for event in stream_agent(req.message, thread_id=req.thread_id):
+                yield _sse(event)
+        except ReauthorizationRequired as e:
+            yield _sse({"type": "error",
+                        "text": f"Gmail reauthorization required: {e}. Run "
+                                f"`python connectors.py` in a terminal."})
+        except Exception as e:                      # noqa: BLE001
+            # Broad on purpose. An exception escaping a StreamingResponse
+            # generator just drops the connection mid-body, and the client
+            # sees a truncated answer with no reason. One last event is
+            # worth more than a clean traceback nobody is watching.
+            print(f"!! /chat/stream: {type(e).__name__}: {e}", file=sys.stderr)
+            yield _sse({"type": "error", "text": f"{type(e).__name__}: {e}"})
+        yield _sse({"type": "done", "thread_id": req.thread_id})
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        # Nothing is proxying us on loopback, but a browser or an antivirus
+        # shim that buffers this response turns streaming back into
+        # waiting. These headers cost nothing and say "do not hold on".
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# --- the page --------------------------------------------------------------
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """The chat page (ADR-025).
+
+    One file, served same-origin from the process that already holds the
+    token — so it needs no CORS entry, no build step, and no second port.
+    It is a client of the endpoints above exactly like chat.py is; it just
+    happens to be delivered by the same server.
+    """
+    page = WEB / "index.html"
+    if not page.exists():
+        raise HTTPException(404, f"no front end at {page} — the API still "
+                                 f"works; try /docs")
+    return FileResponse(page, media_type="text/html")
+
+
 # --- entrypoint ------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -381,5 +466,5 @@ if __name__ == "__main__":
     use_utf8()          # uvicorn logs request paths and tracebacks, both of
                         # which can carry non-ASCII (console.py)
 
-    print(f"Secretary API on http://{HOST}:{PORT}  (docs at /docs)")
+    print(f"Secretary on http://{HOST}:{PORT}  (chat at /, docs at /docs)")
     uvicorn.run(app, host=HOST, port=PORT)

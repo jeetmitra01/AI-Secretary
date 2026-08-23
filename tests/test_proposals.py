@@ -398,7 +398,7 @@ def test_the_gate_reruns_at_commit_time(conn):
 
 def test_reauthorization_returns_the_proposal_to_pending(conn):
     """A dead write token is retryable, so the proposal must survive it."""
-    from connectors import ReauthorizationRequired
+    from auth import ReauthorizationRequired
 
     seed_sender(conn)
     proposal_id = save(conn, a_proposal())

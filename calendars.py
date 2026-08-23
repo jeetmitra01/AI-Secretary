@@ -21,7 +21,7 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from connectors import ReauthorizationRequired, load_credentials  # noqa: F401
+from auth import ReauthorizationRequired, load_credentials  # noqa: F401
 
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 

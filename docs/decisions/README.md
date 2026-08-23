@@ -32,6 +32,8 @@ so the reasoning trail survives).
 | 022 | Durable chat threads: SqliteSaver in secretary.db   | accepted |
 | 023 | Calendar writes behind a non-LLM executor zone      | accepted |
 | 024 | Deterministic policy gate; auto-commit in shadow    | accepted |
+| 025 | Static page at /, and /chat/stream over SSE         | accepted |
+| 026 | OAuth in auth.py; scope constants stay with callers | accepted |
 
 ## Template
 

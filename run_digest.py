@@ -25,7 +25,8 @@ load_dotenv(BASE / ".env")                      # before Anthropic() — the
                                                 # import-order lesson, encoded
 from anthropic import Anthropic                 # noqa: E402
 import store                                    # noqa: E402
-from connectors import CONNECTORS, ReauthorizationRequired  # noqa: E402
+from auth import ReauthorizationRequired                    # noqa: E402
+from connectors import CONNECTORS                           # noqa: E402
 from extraction import Extraction, ExtractionFailure, extract_email  # noqa: E402
 from composition import Coverage, compose_digest, toast_summary      # noqa: E402
 
