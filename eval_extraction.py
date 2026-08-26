@@ -21,6 +21,12 @@ The asymmetry is the whole report:
                  volume cut over exactly this failure mode.
   FALSE ALARM    the reverse. Costs one noisy digest line. Cheap.
 
+TWO OUTPUT FILES, and the split is a privacy boundary (ADR-030):
+  *-summary.json   counts only. No sender, no subject, no message id.
+                   Safe to commit, and the only thing git tracks.
+  *-rows.json      per-email detail. Real senders and subjects, so it is
+                   gitignored with everything else that touches real mail.
+
 Run:
     python eval_extraction.py --limit 25            # cheap smoke run FIRST
     python eval_extraction.py                       # the full labelled set
@@ -33,6 +39,7 @@ import argparse
 import json
 import sys
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +65,10 @@ DEFAULT_CANDIDATE = "claude-haiku-4-5"
 # "fyi" is deliberately NOT here: mislabelling an fyi as automated costs a
 # digest line, not a meeting.
 SIGNAL = {"meeting_request", "needs_action", "question"}
+
+# How a failed extraction appears in the confusion matrix. A real intent
+# can never collide with it, because the Extraction enum has no such value.
+FAILED = "FAILED"
 
 # USD per million tokens (input, output), list price, as of 2026-08-26.
 #
@@ -138,6 +149,50 @@ def replay(client, rows, model: str, workers: int) -> list[dict]:
     return scored
 
 
+def build_summary(scored: list[dict], model: str, elapsed: float,
+                  workers: int, rows_file: str) -> dict:
+    """The committable half: counts and nothing else (ADR-030).
+
+    THE DIRECTION MATTERS. This is assembled field by field from
+    aggregates. It is NOT a copy of a row with the identifying keys
+    deleted, and it must never become one — a strip-the-bad-keys function
+    leaks the next key somebody adds to `replay()`, silently and by
+    default. Counting cannot leak a field it was never told about.
+
+    A test asserts that nothing in here matches a sender or a subject.
+    """
+    signal_rows = [s for s in scored if s["incumbent"] in SIGNAL]
+    missed = [s for s in scored
+              if s["incumbent"] in SIGNAL and s["candidate"] == "automated"]
+
+    # incumbent -> candidate -> count. Aggregate, so it carries far more
+    # information than the four headline numbers and still names nobody.
+    matrix: dict[str, Counter] = {}
+    for s in scored:
+        matrix.setdefault(s["incumbent"], Counter())[
+            s["candidate"] or FAILED] += 1
+
+    return {
+        "model": model,
+        "incumbent_model": MODEL,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "workers": workers,
+        "elapsed_s": round(elapsed, 1),
+        "scored": len(scored),
+        "agreed": sum(1 for s in scored
+                      if s["candidate"] == s["incumbent"]),
+        "failures": sum(1 for s in scored if s["candidate"] is None),
+        "signal_rows": len(signal_rows),
+        "missed_signal": len(missed),
+        "false_alarms": sum(1 for s in scored
+                            if s["incumbent"] == "automated"
+                            and s["candidate"] in SIGNAL),
+        "confusion": {k: dict(sorted(v.items()))
+                      for k, v in sorted(matrix.items())},
+        "detail_file": rows_file,      # a filename, not its contents
+    }
+
+
 def estimate_input_tokens(rows) -> float:
     """Mean prompt size, built from the REAL prompt the pipeline sends —
     the schema dump and the 1500-char body cap included."""
@@ -149,38 +204,38 @@ def estimate_input_tokens(rows) -> float:
     return total / len(rows) / CHARS_PER_TOKEN
 
 
-def report(scored: list[dict], rows, model: str,
-           elapsed: float, workers: int) -> dict:
-    total = len(scored)
-    failures = [s for s in scored if s["candidate"] is None]
-    agreed = [s for s in scored if s["candidate"] == s["incumbent"]]
+def report(scored: list[dict], rows, summary: dict) -> None:
+    """Console output for the operator. This one DOES print senders and
+    subjects — reading the misses is how ADR-029 was decided — and that
+    is fine, because the console is not a committed artefact. Only
+    `build_summary` feeds a tracked file.
+    """
+    total = summary["scored"]
     missed = [s for s in scored
               if s["incumbent"] in SIGNAL and s["candidate"] == "automated"]
-    false_alarm = [s for s in scored
-                   if s["incumbent"] == "automated"
-                   and s["candidate"] in SIGNAL]
-    signal_rows = [s for s in scored if s["incumbent"] in SIGNAL]
+    failures = [s for s in scored if s["candidate"] is None]
+    other = (total - summary["agreed"] - summary["failures"]
+             - summary["missed_signal"] - summary["false_alarms"])
 
-    accounted = {id(s) for s in agreed + failures + missed + false_alarm}
-    other = [s for s in scored if id(s) not in accounted]
-
-    print(f"\n=== {model} vs the stored labels ===")
+    print(f"\n=== {summary['model']} vs the stored labels ===")
     print(f"  scored              {total}")
-    print(f"  agreed              {len(agreed)} "
-          f"({100 * len(agreed) / total:.1f}%)")
-    print(f"  extraction failures {len(failures)}"
+    print(f"  agreed              {summary['agreed']} "
+          f"({100 * summary['agreed'] / total:.1f}%)")
+    print(f"  extraction failures {summary['failures']}"
           f"   (tripwire 1/2 fired: id mismatch or bad schema)")
-    print(f"  wall clock          {elapsed:.0f}s at {workers} workers")
+    print(f"  wall clock          {summary['elapsed_s']:.0f}s at "
+          f"{summary['workers']} workers")
 
-    kept = len(signal_rows) - len(missed)
-    pct = f" ({100 * kept / len(signal_rows):.0f}%)" if signal_rows else ""
+    n_signal = summary["signal_rows"]
+    kept = n_signal - summary["missed_signal"]
+    pct = f" ({100 * kept / n_signal:.0f}%)" if n_signal else ""
     print("\n  -- the asymmetry --")
-    print(f"  signal rows         {len(signal_rows)}"
+    print(f"  signal rows         {n_signal}"
           f"   (meeting_request / needs_action / question)")
-    print(f"  MISSED SIGNAL       {len(missed)}"
-          f"   -> kept {kept}/{len(signal_rows)}{pct}")
-    print(f"  false alarms        {len(false_alarm)}   (cheap)")
-    print(f"  other disagreement  {len(other)}   (fyi/automated shuffling)")
+    print(f"  MISSED SIGNAL       {summary['missed_signal']}"
+          f"   -> kept {kept}/{n_signal}{pct}")
+    print(f"  false alarms        {summary['false_alarms']}   (cheap)")
+    print(f"  other disagreement  {other}   (fyi/automated shuffling)")
 
     if missed:
         print("\n  MISSED — read every one of these before switching:")
@@ -196,15 +251,9 @@ def report(scored: list[dict], rows, model: str,
     print("\n  -- cost per 100 emails, list price, ~4 chars/token --")
     for name, (p_in, p_out) in PRICES.items():
         per100 = 100 * (in_tok * p_in + EST_OUTPUT_TOKENS * p_out) / 1e6
-        tag = "  <- candidate" if name == model else ""
+        tag = "  <- candidate" if name == summary["model"] else ""
         note = "  (rises to this on 2026-08-31)" if name == MODEL else ""
         print(f"    {name:<18} ${per100:.3f}{tag}{note}")
-
-    return {"model": model, "scored": total, "agreed": len(agreed),
-            "failures": len(failures), "missed_signal": len(missed),
-            "false_alarms": len(false_alarm),
-            "signal_rows": len(signal_rows), "other": len(other),
-            "elapsed_s": round(elapsed, 1), "rows": scored}
 
 
 if __name__ == "__main__":
@@ -233,11 +282,19 @@ if __name__ == "__main__":
     print(f"replaying {len(rows)} labelled emails through {args.model}")
     started = time.monotonic()
     scored = replay(Anthropic(), rows, args.model, args.workers)
-    summary = report(scored, rows, args.model,
-                     time.monotonic() - started, args.workers)
+    elapsed = time.monotonic() - started
 
     EVALS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H%M")
-    out = EVALS_DIR / f"{stamp}-{args.model}.json"
-    out.write_text(json.dumps(summary, indent=1), encoding="utf-8")
-    print(f"\nwritten: {out}")
+    rows_path = EVALS_DIR / f"{stamp}-{args.model}-rows.json"
+    summary_path = EVALS_DIR / f"{stamp}-{args.model}-summary.json"
+
+    summary = build_summary(scored, args.model, elapsed, args.workers,
+                            rows_path.name)
+    report(scored, rows, summary)
+
+    summary_path.write_text(json.dumps(summary, indent=1), encoding="utf-8")
+    rows_path.write_text(json.dumps(scored, indent=1, ensure_ascii=False),
+                         encoding="utf-8")
+    print(f"\nsummary (committable): {summary_path}")
+    print(f"detail   (gitignored):  {rows_path}")

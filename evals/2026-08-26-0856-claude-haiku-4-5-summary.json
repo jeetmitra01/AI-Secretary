@@ -1,0 +1,22 @@
+{
+ "model": "claude-haiku-4-5",
+ "incumbent_model": "claude-sonnet-5",
+ "generated_at": "2026-08-26T13:42:42.364792+00:00",
+ "workers": 4,
+ "elapsed_s": 10.9,
+ "scored": 25,
+ "agreed": 25,
+ "failures": 0,
+ "signal_rows": 1,
+ "missed_signal": 0,
+ "false_alarms": 0,
+ "confusion": {
+  "automated": {
+   "automated": 24
+  },
+  "question": {
+   "question": 1
+  }
+ },
+ "detail_file": "2026-08-26-0856-claude-haiku-4-5-rows.json"
+}

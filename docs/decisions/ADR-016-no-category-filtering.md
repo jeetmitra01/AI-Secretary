@@ -31,14 +31,20 @@ cross-tabulated against our own extraction labels (191 of them):
 **Every single meeting request in the window lives in `promotions` or
 `updates`. Not one is in `primary`.**
 
-The specific mail that would have been discarded:
+The specific mail that would have been discarded (described by role,
+not by name — ADR-030):
 
-- `A recruiter <hit-reply@linkedin.com>` — the recruiter, 4 emails,
+- **A recruiter, arriving on LinkedIn's `hit-reply@` relay** — 4 emails,
   0 of 4 automated, all in `updates`. This is the thread that produced
   the one genuinely time-sensitive item in the last two digests.
-- `A leasing office <a-leasing-office@knck.io>` — leasing office
-  replying to an enquiry, `promotions`.
-- `a-second-leasing-office@assist.rent` — apartment tour scheduling, `updates`.
+- **A leasing office, on a `knck.io` relay** — replying to an enquiry,
+  `promotions`.
+- **A second leasing office, on `assist.rent`** — apartment tour
+  scheduling, `updates`.
+
+The relay domains stay because they are the finding: the signal arrives
+on bulk-sending infrastructure, which is exactly why a category filter
+cannot separate it. Who was on the other end is not part of the argument.
 
 ## Decision
 
@@ -77,10 +83,18 @@ Measured over the same window: 317 → 249, a 21% cut. Over-match was
 checked explicitly, because ADR-010's `-from:me` finding showed
 `from:` matching envelope and VERP Return-Path addresses:
 
-    hit-reply@linkedin.com                    kept 4/4
-    inmail-hit-reply@linkedin.com             kept 1/1
-    a-leasing-agent@example.invalid  kept 8/8
-    a-leasing-office@example.invalid                   kept 6/6
+    linkedin.com  hit-reply@        (recruiter thread)   kept 4/4
+    linkedin.com  inmail-hit-reply@ (recruiter InMail)   kept 1/1
+    a leasing agent's direct address                     kept 8/8
+    a leasing office's reply address                     kept 6/6
+
+(The two LinkedIn relays are platform addresses — identical for every
+user of the site — so they identify nobody and are kept verbatim. The
+lower two were a named individual and a specific office this mailbox
+dealt with, so they are described instead. `BULK_SENDERS` in
+`connectors.py` keeps its real values: those are corporate broadcast
+addresses, and they are live code that has to match. ADR-030 draws the
+line.)
 
 No keeper was lost. But 249 is still far above `MAX_FETCH = 100`, so
 **this does not stop truncation and must not be mistaken for the fix.**

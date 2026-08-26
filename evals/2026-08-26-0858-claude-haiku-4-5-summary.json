@@ -1,0 +1,38 @@
+{
+ "model": "claude-haiku-4-5",
+ "incumbent_model": "claude-sonnet-5",
+ "generated_at": "2026-08-26T13:42:42.367792+00:00",
+ "workers": 4,
+ "elapsed_s": 165.0,
+ "scored": 397,
+ "agreed": 385,
+ "failures": 0,
+ "signal_rows": 23,
+ "missed_signal": 3,
+ "false_alarms": 5,
+ "confusion": {
+  "automated": {
+   "automated": 365,
+   "fyi": 1,
+   "meeting_request": 1,
+   "needs_action": 3,
+   "question": 1
+  },
+  "fyi": {
+   "fyi": 3
+  },
+  "meeting_request": {
+   "automated": 3,
+   "meeting_request": 10
+  },
+  "needs_action": {
+   "needs_action": 6
+  },
+  "question": {
+   "meeting_request": 1,
+   "needs_action": 2,
+   "question": 1
+  }
+ },
+ "detail_file": "2026-08-26-0858-claude-haiku-4-5-rows.json"
+}

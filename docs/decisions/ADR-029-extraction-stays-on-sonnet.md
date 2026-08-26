@@ -47,23 +47,28 @@ other disagreement  4          (fyi/automated shuffling)
 97% agreement, zero malformed output, a third of the price. On the
 headline number this is an easy switch.
 
-The headline number is the wrong number. Here is what the three misses
-were — all three `meeting_request` -> `automated`:
+The headline number is the wrong number. Here are the three misses, all
+`meeting_request` -> `automated`, described by role rather than by name
+or address (ADR-030 — the argument needs the shape of each email, not the
+parties to it):
 
-1. **`a-leasing-office@example.invalid`** — "Come take a tour... Reply to this
-   email or give us a call to schedule your personalized tour." No date,
-   no time; Sonnet recorded `proposed_times: []`, `flexible: true`.
+1. **A leasing office's reply address** — "Come take a tour... Reply to
+   this email or give us a call to schedule your personalized tour." No
+   date, no time; Sonnet recorded `proposed_times: []`, `flexible: true`.
    **Haiku is arguably right here.** This is a bulk solicitation.
-2. **`bulk-tour-invites@example.invalid`, "Group Tour Invite"** — "[a street address,
-   unit number redacted]... **Tuesday, Aug 18, 2026 12:30 PM - 1 PM
-   PDT**. Hosted By a named host."
-3. **The same, "Saturday, Aug 15, 2026 11 AM - 11:30 AM PDT**, Hosted By
-   a second named host."
+2. **A property-management platform's bulk tour-invite address**
+   (`mail.<platform>.com`, sent via a marketing-automation vendor),
+   subject "Group Tour Invite" — a named host, a specific unit, and
+   **Tuesday, Aug 18, 2026 12:30 PM - 1 PM PDT**.
+3. **The same sender** — a different named host, and **Saturday,
+   Aug 15, 2026 11 AM - 11:30 AM PDT**.
 
-(2) and (3) are not judgment calls. They carry a named host, a unit
+(2) and (3) are not judgment calls. Each carries a named host, a unit
 number, and an exact half-hour window, and Sonnet copied the time verbatim
 into `proposed_times` exactly as the prompt asks. Haiku filed both as
-newsletters.
+newsletters. That the sender is a bulk marketing address is the point,
+not an aside: it is ADR-016's finding restated — the signal arrives on
+infrastructure that looks like noise.
 
 ## Decision
 

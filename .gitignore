@@ -193,9 +193,16 @@ run_digest.bat
 # Digest run archives — real email content, never committed
 runs/
 
-# Model bake-off results (eval_extraction.py). Holds real senders and
-# subjects, same sensitivity as runs/.
-evals/
+# Model bake-off output (eval_extraction.py, ADR-030). Deny by default,
+# then allow exactly one name back: an output file added here later is
+# ignored unless somebody deliberately un-ignores it, which is the safe
+# direction for a directory that touches real mail.
+#
+# `evals/*` and not `evals/`, deliberately — git cannot re-include a file
+# that sits inside an excluded DIRECTORY, so the negation below would be
+# dead with the shorter form.
+evals/*
+!evals/*-summary.json
 
 # Watermark + seen ids — machine-local state, not source
 state.json
