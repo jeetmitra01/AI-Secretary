@@ -21,10 +21,24 @@ from pydantic import BaseModel, Field, ValidationError
 
 from models import Email
 
-MODEL = "claude-sonnet-5"     # try claude-haiku-4-5 later: extraction
-                              # is a narrow task, and comparing the two models'
-                              # error rates on your runs/ archive is a free
-                              # experiment in capability-vs-cost.
+MODEL = "claude-sonnet-5"     # the default. `python eval_extraction.py`
+                              # replays the store through a candidate model
+                              # and scores it against these labels (ADR-029).
+
+# Which models need — and accept — an explicit thinking off-switch.
+#
+# Not cosmetic, and not the same answer for every model:
+#   claude-sonnet-5   omitting `thinking` runs ADAPTIVE thinking. So the
+#                     off-switch is required, and `{"type": "disabled"}` is
+#                     the accepted form.
+#   claude-haiku-4-5  omitting `thinking` already means no thinking, and its
+#                     thinking API is the older `{"type": "enabled",
+#                     "budget_tokens": N}` shape. `disabled` is not part of
+#                     it, so sending it risks a 400 to buy nothing.
+#
+# Hence: send the key only for models on this list, never by default. A new
+# model goes here only after checking which of the two rules it follows.
+THINKING_OFF = {"claude-sonnet-5"}
 
 
 # --- the schema: every field must earn its place in the digest -------------
@@ -69,9 +83,15 @@ Respond with ONLY a JSON object matching:
 {schema}"""
 
 
-def extract_email(client, email: Email) -> Extraction | ExtractionFailure:
+def extract_email(client, email: Email,
+                  model: str = MODEL) -> Extraction | ExtractionFailure:
     """One email -> one validated Extraction. Never raises; failures
-    return ExtractionFailure so the pipeline keeps moving."""
+    return ExtractionFailure so the pipeline keeps moving.
+
+    `model` is a parameter and not just the module constant so the eval
+    harness can score a candidate against the SAME code path the pipeline
+    runs — a benchmark of a reimplementation would measure the wrong thing.
+    """
     prompt = PROMPT.format(
         email_block=email.brief(body_chars=1500),  # ADR-004 delimiting
         email_id=email.id,
@@ -90,8 +110,9 @@ def extract_email(client, email: Email) -> Extraction | ExtractionFailure:
         # a model error. Extraction is a fill-in-the-schema task; there is
         # nothing here to reason about.
         resp = client.messages.create(
-            model=MODEL, max_tokens=800,
-            thinking={"type": "disabled"},
+            model=model, max_tokens=800,
+            **({"thinking": {"type": "disabled"}}
+               if model in THINKING_OFF else {}),
             messages=[{"role": "user", "content": prompt}],
         )
         text = "".join(b.text for b in resp.content if b.type == "text")
