@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ import store                                    # noqa: E402
 from auth import ReauthorizationRequired                    # noqa: E402
 from connectors import CONNECTORS                           # noqa: E402
 from extraction import Extraction, ExtractionFailure, extract_email  # noqa: E402
+from models import Email                                     # noqa: E402
 from composition import Coverage, compose_digest, toast_summary      # noqa: E402
 
 # At IMPORT time, not in __main__, and that placement is deliberate: the
@@ -48,6 +50,9 @@ MAX_FETCH = 100                      # bodies per run; count_since tells us
                                      # when the window overflowed it (ADR-012)
 MAX_SEEN_IDS = 5000                  # keep the newest N; older ones are
                                      # outside any future fetch window anyway
+EXTRACT_WORKERS = 4                  # concurrent extraction calls (ADR-028).
+                                     # The cap is the API rate limit, not the
+                                     # CPU: these threads are ~100% waiting.
 
 
 # --- state -----------------------------------------------------------------
@@ -92,6 +97,43 @@ def deliver(result: RunResult) -> None:
 
 
 # --- orchestrator ----------------------------------------------------------
+
+def extract_all(client, emails: list[Email]
+                ) -> tuple[list[Extraction], list[ExtractionFailure]]:
+    """Extract every email, concurrently, and return the results in the
+    SAME order as `emails` (ADR-028).
+
+    A separate function rather than an inline loop so the ordering
+    guarantee has something to be tested against; extraction.py stays
+    one-email-in-one-out, which is the whole point of ADR-009.
+
+    Two properties this leans on, both worth stating because a future
+    edit could take either away:
+
+    - `extract_email` never raises. It returns ExtractionFailure. So a
+      worker cannot poison the map, and no result is ever lost to an
+      exception that surfaces at iteration time.
+    - `Anthropic()` is safe to share across threads (httpx under it is),
+      so all four workers use the one client the caller passed.
+    """
+    extractions: list[Extraction] = []
+    failures: list[ExtractionFailure] = []
+
+    with ThreadPoolExecutor(max_workers=EXTRACT_WORKERS) as pool:
+        # .map yields in INPUT order, never completion order. That is the
+        # load-bearing detail: emails arrive newest-first (ADR-011) and
+        # the digest presents them that way, so a completion-ordered
+        # result set would silently reshuffle the digest into whatever
+        # sequence the API happened to answer in.
+        for email, result in zip(emails, pool.map(
+                lambda e: extract_email(client, e), emails)):
+            (extractions if isinstance(result, Extraction)
+             else failures).append(result)
+            print(f"  {email.id}: "
+                  f"{result.intent if isinstance(result, Extraction) else 'FAILED'}")
+
+    return extractions, failures
+
 
 @dataclass(frozen=True)
 class RunResult:
@@ -146,13 +188,7 @@ def ingest(client: Anthropic | None = None) -> RunResult:
     print(f"unread in window {pending}, read this run {len(emails)}"
           + (f", NOT covered {coverage.missed}" if coverage.truncated else ""))
 
-    extractions: list[Extraction] = []
-    failures: list[ExtractionFailure] = []
-    for email in emails:
-        result = extract_email(client, email)
-        (extractions if isinstance(result, Extraction) else failures).append(result)
-        print(f"  {email.id}: "
-              f"{result.intent if isinstance(result, Extraction) else 'FAILED'}")
+    extractions, failures = extract_all(client, emails)
 
     digest = compose_digest(client, extractions, failures, coverage)
 

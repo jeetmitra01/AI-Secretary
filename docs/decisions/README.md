@@ -35,6 +35,7 @@ so the reasoning trail survives).
 | 025 | Static page at /, and /chat/stream over SSE         | accepted |
 | 026 | OAuth in auth.py; scope constants stay with callers | amended by 027 |
 | 027 | One consent command, two grants, two token files    | accepted |
+| 028 | Concurrent extraction, results in input order      | accepted |
 
 ## Template
 
