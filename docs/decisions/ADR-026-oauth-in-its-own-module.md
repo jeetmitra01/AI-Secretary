@@ -1,7 +1,7 @@
 # ADR-026: Google OAuth moves to auth.py; scope constants stay with their callers
 
 Date: 2026-08-23
-Status: accepted
+Status: accepted; the no-__main__ decision is superseded by ADR-027
 Amends: ADR-002, ADR-007
 
 ## Context
@@ -35,6 +35,10 @@ inside is unchanged: this is a move, not a rewrite.
 
 **`auth.py` has no `__main__`.** There is no `python auth.py`. Re-consent
 still runs through the entrypoint that needs the scope.
+
+> **Superseded by ADR-027.** `python auth.py` now consents to every
+> grant, as two flows on two token files. The scope-placement
+> decision above stands and is now enforced by tests.
 
 ## Why
 

@@ -13,6 +13,8 @@ python server.py            # the local API + chat page on
                             # http://127.0.0.1:8765
 python chat.py              # console REPL against that API
 python backfill.py          # one-shot: import existing runs/ into the store
+python auth.py              # consent to every scope the service needs
+python auth.py --check      # what is granted now; opens no browser
 python store.py             # what's in the database right now
 python executor.py          # pending calendar proposals; <id> commits one
 python executor.py --consent  # one-off: mint the calendar write token
@@ -26,7 +28,7 @@ API's `/ingest` call the same `run_digest.ingest()`, so they cannot drift.
 
 | file | role |
 | --- | --- |
-| `auth.py` | Google OAuth, and nothing else (ADR-026) |
+| `auth.py` | Google OAuth + the grant registry; `python auth.py` consents (ADR-027) |
 | `connectors.py` | provider APIs -> the normalized `Email` (ADR-002) |
 | `extraction.py` | one email -> one validated `Extraction` (ADR-009) |
 | `composition.py` | extractions -> digest markdown; counts computed in code |

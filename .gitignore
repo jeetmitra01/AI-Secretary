@@ -186,6 +186,9 @@ token.json
 token_write.json
 credentials.json
 SCHEDULING.md
+# The scheduled-task wrapper: hardcodes this machine's interpreter
+# path, for the reason SCHEDULING.md gives. Machine-local, like it.
+run_digest.bat
 
 # Digest run archives — real email content, never committed
 runs/

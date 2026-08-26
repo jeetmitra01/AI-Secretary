@@ -33,7 +33,8 @@ so the reasoning trail survives).
 | 023 | Calendar writes behind a non-LLM executor zone      | accepted |
 | 024 | Deterministic policy gate; auto-commit in shadow    | accepted |
 | 025 | Static page at /, and /chat/stream over SSE         | accepted |
-| 026 | OAuth in auth.py; scope constants stay with callers | accepted |
+| 026 | OAuth in auth.py; scope constants stay with callers | amended by 027 |
+| 027 | One consent command, two grants, two token files    | accepted |
 
 ## Template
 
