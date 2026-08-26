@@ -193,6 +193,10 @@ run_digest.bat
 # Digest run archives — real email content, never committed
 runs/
 
+# Model bake-off results (eval_extraction.py). Holds real senders and
+# subjects, same sensitivity as runs/.
+evals/
+
 # Watermark + seen ids — machine-local state, not source
 state.json
 

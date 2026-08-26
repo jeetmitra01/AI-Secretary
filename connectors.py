@@ -33,7 +33,9 @@ from models import Email
 
 # READ-ONLY on purpose. Widening this scope later (e.g. to create drafts)
 # is a deliberate security decision, not a config tweak. If you change
-# scopes, delete token.json and re-authorize.
+# scopes, run `python auth.py`: load_credentials() sees the missing scope
+# and re-consents for the UNION, so deleting token.json is not needed and
+# would only drop the scopes you still want.
 #
 # Declared HERE and not in auth.py (ADR-026): a scope is a statement about
 # what this connector may do, and it belongs beside the code that does it.
@@ -411,7 +413,9 @@ if __name__ == "__main__":
     use_utf8()
 
     # The one entrypoint where a human is definitionally present, so this
-    # is also how you re-consent after a token dies: python connectors.py
+    # also re-consents after a token dies. `python auth.py` is the answer
+    # a failure message gives, because it repairs BOTH grants; this one
+    # repairs Gmail and then proves it, by printing real mail (ADR-026).
     connector = GmailConnector(allow_interactive_auth=True)
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     emails = connector.fetch_since(since, max_results=20)

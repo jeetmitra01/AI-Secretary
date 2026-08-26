@@ -263,8 +263,8 @@ def main() -> None:
     except ReauthorizationRequired as e:
         print(f"[auth] {e}", file=sys.stderr)
         toast("Secretary: re-authorization needed",
-              "Gmail access expired. Run `python connectors.py` in a "
-              "terminal to re-consent.")
+              "Gmail access expired. Run `python auth.py` in a terminal "
+              "to re-consent; the next scheduled run then resumes.")
         sys.exit(2)          # nonzero -> visible in Task Scheduler's
                              # Last Run Result, not just buried in the log
 

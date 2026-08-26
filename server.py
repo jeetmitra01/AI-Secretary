@@ -263,7 +263,8 @@ def ingest() -> IngestResult:
         result = run_digest.ingest()
     except ReauthorizationRequired as e:
         # 503, not 500: the service is fine, the Gmail grant is not, and
-        # only a human at a terminal can fix it (`python connectors.py`).
+        # only a human at a terminal can fix it (`python auth.py`). The
+        # command is not repeated here: it is already inside `e`.
         raise HTTPException(503, f"gmail reauthorization required: {e}")
     finally:
         _ingest_lock.release()
@@ -419,8 +420,7 @@ def chat_stream(req: ChatRequest) -> StreamingResponse:
                 yield _sse(event)
         except ReauthorizationRequired as e:
             yield _sse({"type": "error",
-                        "text": f"Gmail reauthorization required: {e}. Run "
-                                f"`python connectors.py` in a terminal."})
+                        "text": f"Gmail reauthorization required: {e}"})
         except Exception as e:                      # noqa: BLE001
             # Broad on purpose. An exception escaping a StreamingResponse
             # generator just drops the connection mid-body, and the client

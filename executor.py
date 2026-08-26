@@ -221,8 +221,7 @@ def commit(conn: sqlite3.Connection, proposal_id: str, actor: str = "human",
                             error=f"reauthorization required: {e}",
                             from_status="committing")
         return _result(proposal_id, "pending",
-                       f"calendar write needs consent — run "
-                       f"`python executor.py --consent`. ({e})",
+                       f"calendar write needs consent. ({e})",
                        needs_consent=True)
     except Exception as e:
         store.mark_proposal(conn, proposal_id, "failed", decided_by=actor,

@@ -123,7 +123,7 @@ def _renew(creds, scopes, credentials_file, allow_interactive_auth, missing):
         raise ReauthorizationRequired(
             f"{why}. Google needs consent again and this process has no "
             f"console to prompt at. Run `python auth.py` in a terminal to "
-            f"re-authorize, then the schedule resumes."
+            f"re-authorize, then run this again."
         )
 
     # Consent for the UNION of what we need and what the token already had.
