@@ -19,13 +19,14 @@ python -m pip install -r requirements.txt
 
 Extraction defaults to an OpenAI model (ADR-031), while the agent loop and
 the graph call Anthropic — both are required, not alternatives. Each SDK
-reads its own key from the environment, so put both in a `.env` beside
-this file:
+reads its own key from the environment. Copy the template and fill it in:
 
+```bash
+cp .env.example .env     # then edit .env
 ```
-ANTHROPIC_API_KEY=...
-OPENAI_API_KEY=...
-```
+
+`.env.example` lists every variable the code reads and is tracked;
+`.env` holds the real values and is gitignored.
 
 **3. A Google OAuth client of your own**
 
