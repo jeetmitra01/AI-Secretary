@@ -1,0 +1,37 @@
+{
+ "model": "gpt-5.6-luna",
+ "incumbent_model": "claude-sonnet-5",
+ "generated_at": "2026-08-26T14:36:49.348787+00:00",
+ "workers": 4,
+ "elapsed_s": 217.2,
+ "scored": 497,
+ "agreed": 465,
+ "failures": 0,
+ "signal_rows": 25,
+ "missed_signal": 3,
+ "false_alarms": 21,
+ "confusion": {
+  "automated": {
+   "automated": 444,
+   "fyi": 3,
+   "meeting_request": 1,
+   "needs_action": 17,
+   "question": 3
+  },
+  "fyi": {
+   "fyi": 4
+  },
+  "meeting_request": {
+   "automated": 3,
+   "meeting_request": 10,
+   "needs_action": 1
+  },
+  "needs_action": {
+   "needs_action": 7
+  },
+  "question": {
+   "needs_action": 4
+  }
+ },
+ "detail_file": "2026-08-26-1436-gpt-5.6-luna-rows.json"
+}

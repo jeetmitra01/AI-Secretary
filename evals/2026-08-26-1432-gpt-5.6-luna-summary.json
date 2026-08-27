@@ -1,0 +1,23 @@
+{
+ "model": "gpt-5.6-luna",
+ "incumbent_model": "claude-sonnet-5",
+ "generated_at": "2026-08-26T14:32:58.652198+00:00",
+ "workers": 4,
+ "elapsed_s": 21.6,
+ "scored": 25,
+ "agreed": 22,
+ "failures": 0,
+ "signal_rows": 1,
+ "missed_signal": 0,
+ "false_alarms": 2,
+ "confusion": {
+  "automated": {
+   "automated": 22,
+   "needs_action": 2
+  },
+  "question": {
+   "needs_action": 1
+  }
+ },
+ "detail_file": "2026-08-26-1432-gpt-5.6-luna-rows.json"
+}

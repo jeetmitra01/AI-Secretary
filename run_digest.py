@@ -28,6 +28,8 @@ from anthropic import Anthropic                 # noqa: E402
 import store                                    # noqa: E402
 from auth import ReauthorizationRequired                    # noqa: E402
 from connectors import CONNECTORS                           # noqa: E402
+import extraction                                            # noqa: E402
+import providers                                             # noqa: E402
 from extraction import Extraction, ExtractionFailure, extract_email  # noqa: E402
 from models import Email                                     # noqa: E402
 from composition import Coverage, compose_digest, toast_summary      # noqa: E402
@@ -113,8 +115,9 @@ def extract_all(client, emails: list[Email]
     - `extract_email` never raises. It returns ExtractionFailure. So a
       worker cannot poison the map, and no result is ever lost to an
       exception that surfaces at iteration time.
-    - `Anthropic()` is safe to share across threads (httpx under it is),
-      so all four workers use the one client the caller passed.
+    - Both provider clients are safe to share across threads (httpx
+      under each of them is), so all four workers use the one client the
+      caller passed.
     """
     extractions: list[Extraction] = []
     failures: list[ExtractionFailure] = []
@@ -158,7 +161,14 @@ def ingest(client: Anthropic | None = None) -> RunResult:
     report that: the CLI toasts and exits nonzero, the service returns
     an error status.
     """
+    # TWO clients, because the two stages are on two providers (ADR-031).
+    # `client` stays the Anthropic one and belongs to composition, which
+    # keeps its own MODEL and passes `thinking` — handing it an OpenAI
+    # client raises by design. Extraction builds its own from
+    # extraction.MODEL, so changing that constant is the whole switch.
     client = client or Anthropic()
+    extract_client = providers.client_for(extraction.MODEL)
+
     # No allow_interactive_auth: this entrypoint is the scheduled one, so
     # a dead token must raise, never try to open a browser.
     connector = CONNECTORS[EMAIL_PROVIDER]()
@@ -188,7 +198,7 @@ def ingest(client: Anthropic | None = None) -> RunResult:
     print(f"unread in window {pending}, read this run {len(emails)}"
           + (f", NOT covered {coverage.missed}" if coverage.truncated else ""))
 
-    extractions, failures = extract_all(client, emails)
+    extractions, failures = extract_all(extract_client, emails)
 
     digest = compose_digest(client, extractions, failures, coverage)
 

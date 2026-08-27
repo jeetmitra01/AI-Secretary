@@ -36,8 +36,9 @@ so the reasoning trail survives).
 | 026 | OAuth in auth.py; scope constants stay with callers | amended by 027 |
 | 027 | One consent command, two grants, two token files    | accepted |
 | 028 | Concurrent extraction, results in input order      | accepted |
-| 029 | Extraction stays on Sonnet 5; Haiku 4.5 rejected    | accepted |
+| 029 | Extraction stays on Sonnet 5; Haiku 4.5 rejected    | amended by 031 |
 | 030 | Personal data stays out of the repository          | accepted |
+| 031 | Extraction moves to gpt-5.6-luna (provisional)     | accepted |
 
 ## Template
 

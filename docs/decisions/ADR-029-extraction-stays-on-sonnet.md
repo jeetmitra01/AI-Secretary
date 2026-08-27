@@ -1,7 +1,7 @@
 # ADR-029: Extraction stays on Sonnet 5; Haiku 4.5 measured and rejected
 
 Date: 2026-08-26
-Status: accepted
+Status: accepted; the model choice is amended by ADR-031
 
 ## Context
 
@@ -66,7 +66,17 @@ parties to it):
 (2) and (3) are not judgment calls. Each carries a named host, a unit
 number, and an exact half-hour window, and Sonnet copied the time verbatim
 into `proposed_times` exactly as the prompt asks. Haiku filed both as
-newsletters. That the sender is a bulk marketing address is the point,
+newsletters.
+
+> **Amended by ADR-031.** The sentence above — "not judgment calls" — did
+> not survive contact with a second candidate. `gpt-5.6-luna`, scored on
+> the same 397 emails, missed the *identical three* emails, and none
+> others. Two models from different providers agreeing exactly on which 3
+> of 23 signal rows are `automated` is not two independent errors; by
+> chance those sets collide about 1 time in 1,771. The three are better
+> read as genuinely ambiguous — bulk marketing carrying a real
+> appointment — and Sonnet may be the outlier. The measurement below
+> stands; that one claim about it does not. That the sender is a bulk marketing address is the point,
 not an aside: it is ADR-016's finding restated — the signal arrives on
 infrastructure that looks like noise.
 

@@ -21,9 +21,14 @@ from pydantic import BaseModel, Field, ValidationError
 
 from models import Email
 
-MODEL = "claude-sonnet-5"     # the default. `python eval_extraction.py`
-                              # replays the store through a candidate model
-                              # and scores it against these labels (ADR-029).
+MODEL = "gpt-5.6-luna"       # ADR-031, provisional. Measured against the
+                              # store at 93.5% agreement with Sonnet 5 and
+                              # 1/14th the cost. `providers.client_for()`
+                              # builds the right client; nothing else here
+                              # knows the provider changed.
+                              #
+                              # `python eval_extraction.py` replays the
+                              # store through a candidate and scores it.
 
 # Which models need — and accept — an explicit thinking off-switch.
 #
@@ -38,7 +43,18 @@ MODEL = "claude-sonnet-5"     # the default. `python eval_extraction.py`
 #
 # Hence: send the key only for models on this list, never by default. A new
 # model goes here only after checking which of the two rules it follows.
-THINKING_OFF = {"claude-sonnet-5"}
+THINKING_OFF = {"claude-sonnet-5", "claude-opus-5"}
+#
+# claude-opus-5 is listed even though it is not the default: on it,
+# omitting `thinking` runs ADAPTIVE thinking, and max_tokens caps
+# thinking + answer together, so an unlisted Opus run would truncate
+# most of its JSON and cost ~3x. The list is a safety net, not a
+# record of what is in use.
+#
+# OpenAI models are absent on purpose: the off-switch there is
+# reasoning_effort="none", which providers.py sets. Adding one here
+# would send `thinking` to a client that raises on it — loudly,
+# which is the intended behaviour.
 
 
 # --- the schema: every field must earn its place in the digest -------------
