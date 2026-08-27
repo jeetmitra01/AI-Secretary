@@ -4,6 +4,71 @@ I want this to basically be an AI secretary
 
 Design decisions and their reasoning live in [`docs/decisions/`](docs/decisions/).
 
+## Setup
+
+Python 3.10 or newer (developed on 3.12). You need a Google account whose
+mail this reads, and a key for each of the two model providers.
+
+**1. Install the dependencies**
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+**2. Provider keys**
+
+Extraction defaults to an OpenAI model (ADR-031), while the agent loop and
+the graph call Anthropic — both are required, not alternatives. Each SDK
+reads its own key from the environment, so put both in a `.env` beside
+this file:
+
+```
+ANTHROPIC_API_KEY=...
+OPENAI_API_KEY=...
+```
+
+**3. A Google OAuth client of your own**
+
+There is no shared client; you create one:
+
+1. In the Google Cloud console, make a project and enable the **Gmail
+   API** and the **Google Calendar API**.
+2. On the OAuth consent screen, choose **External** and add your own
+   address as a test user.
+3. Create an **OAuth client ID** of type **Desktop app**, download the
+   JSON, and save it here as `credentials.json`.
+
+**4. Consent**
+
+```bash
+python auth.py           # opens a browser; grants every scope below
+python auth.py --check   # report what is granted now; opens no browser
+```
+
+That writes **two** token files, deliberately (ADR-027):
+
+| file | scopes | held by |
+| --- | --- | --- |
+| `token.json` | `gmail.readonly`, `calendar.readonly` | the digest and the agent |
+| `token_write.json` | `calendar.events` | `executor.py`, and nothing else |
+
+The code that puts untrusted email into a model's context never holds a
+scope that can change anything (ADR-003, ADR-023). That split is the
+security boundary rather than any prompt wording, so the files must not be
+merged.
+
+**5. First run**
+
+```bash
+python run_digest.py     # creates secretary.db and state.json as it goes
+python server.py         # then open http://127.0.0.1:8765/
+```
+
+`.env`, `credentials.json`, both token files, `secretary.db` and `runs/`
+are all gitignored, and hold either credentials or real mail (ADR-030).
+Delivery ends in a Windows toast; on other platforms that step is skipped
+and the run still completes.
+
 ## Running it
 
 ```bash
